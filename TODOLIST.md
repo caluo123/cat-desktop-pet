@@ -42,10 +42,10 @@
 - [ ] 醒来后实机确认三套动作效果，不满意可换帧重生成
 
 ## 里程碑 5：打包 Windows exe ⏳（需要一台 Windows 电脑）
-- [ ] 安装 Python 3.10+（勾选 Add to PATH）
-- [ ] 把项目复制到 Windows
-- [ ] 双击 `build.bat`（或按 README 里的 PyInstaller 命令）
-- [ ] 把 `dist/CatPet.exe` 发给朋友 / 放到桌面双击自用
+- [x] 方案 A：GitHub Actions 云端打包（仓库 caluo123/cat-desktop-pet）
+- [x] `dist/CatPet.exe`（19.5MB）已生成并下载到本地
+- [ ] 在真实 Windows 上双击验证动画与透明效果
+- [ ] （可选）把 exe 发给朋友 / 放到桌面双击自用
 
 ## 里程碑 6（可选）：进阶功能
 - [ ] 开机自启（把 exe 快捷方式放进启动文件夹）
