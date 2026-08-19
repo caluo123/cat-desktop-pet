@@ -29,7 +29,7 @@ import time
 import tkinter as tk
 import urllib.request
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageFilter, ImageTk
 
 
 # ===========================================================================
@@ -48,6 +48,9 @@ ASSET_DIR = os.path.join(BASE_DIR, "assets", "cat")
 # 猫咪显示尺寸（像素，正方形）：程序会把所有素材缩放到这个大小
 # 也可运行时用命令行参数指定：python main.py --size 320
 PET_SIZE = 256
+
+# 猫头上方预留的气泡区高度（说话气泡显示在这里，不挡猫）
+BUBBLE_ZONE = 96
 
 # 消除"紫色描边"：
 # Windows 透明色窗口会把品红(MAGENTA)变成透明，图片半透明边缘和品红混合后
@@ -100,6 +103,8 @@ DEFAULT_MENU = {
     "actions_submenu_label": "动作",
     "show_hearts": True,
     "hearts_label": "发射爱心彩蛋",
+    "show_speech": True,
+    "speech_label": "说句话",
     "show_pause": True,
     "show_size": True,
     "show_sleep": True,
@@ -115,6 +120,13 @@ DEFAULT_BEHAVIOR = {
     "sleep_after_max": 70,
     "sleep_duration_min": 15,
     "sleep_duration_max": 40,
+}
+DEFAULT_SPEECH = {
+    "enabled": True,
+    "random_interval_min": 25,
+    "random_interval_max": 60,
+    "duration_ms": 3500,
+    "phrases": ["喵~", "摸摸我嘛~", "想吃小鱼干", "陪我玩一会儿"],
 }
 DEFAULT_REMOTE = {"enabled": False, "config_url": "", "assets_base": ""}
 
@@ -139,6 +151,7 @@ def load_config():
         "states": dict(ANIM_CONFIG),
         "menu": dict(DEFAULT_MENU),
         "behavior": dict(DEFAULT_BEHAVIOR),
+        "speech": dict(DEFAULT_SPEECH),
         "remote": dict(DEFAULT_REMOTE),
     }
     if os.path.exists(CONFIG_PATH):
@@ -226,6 +239,11 @@ class CatPet:
         self._heart_photos = {}       # 爱心彩蛋的图片缓存
         self._hearts = []             # 正在飘散的爱心列表
         self._heart_anim_running = False
+        self._speech_items = []       # 说话气泡的画布元素
+        self._next_speech_time = time.monotonic() + random.uniform(
+            (CFG or {}).get("speech", DEFAULT_SPEECH).get("random_interval_min", 25),
+            (CFG or {}).get("speech", DEFAULT_SPEECH).get("random_interval_max", 60),
+        )
         self._walk_dir = 1            # 当前朝向：1 向右，-1 向左
 
         # ---- 拖拽/点击判定 ----
@@ -293,10 +311,10 @@ class CatPet:
                 frames = self.pil_frames.get("idle", [])
             self.pil_frames[state] = frames
 
-        # 窗口/画布尺寸 = 设定的猫咪尺寸
+        # 窗口/画布尺寸 = 猫咪尺寸 + 上方气泡区
         self.pet_size = PET_SIZE
         self.window_w = PET_SIZE
-        self.window_h = PET_SIZE
+        self.window_h = PET_SIZE + BUBBLE_ZONE
 
     def _get_frame_path(self, state, idx):
         """
@@ -345,13 +363,13 @@ class CatPet:
 
         self.pet_size = size
         self.window_w = size
-        self.window_h = size
+        self.window_h = size + BUBBLE_ZONE
         self.pil_frames = {
             state: [self._prepare_frame(img, size) for img in imgs]
             for state, imgs in self.pil_frames.items()
         }
         self._photo_cache.clear()
-        self.canvas.config(width=size, height=size)
+        self.canvas.config(width=size, height=size + BUBBLE_ZONE)
         self.root.geometry(f"+{cx - size // 2}+{cy - size // 2}")
         self._show_frame()
         print(f"[大小] 猫咪调整为 {size}x{size}")
@@ -367,7 +385,8 @@ class CatPet:
             bd=0,
         )
         self.canvas.pack()
-        self.img_item = self.canvas.create_image(0, 0, anchor="nw")
+        # 猫图片放在下方，上方留出气泡区
+        self.img_item = self.canvas.create_image(0, BUBBLE_ZONE, anchor="nw")
 
     def _setup_menu(self):
         """右键菜单。内容在弹出时动态生成，保证文案与状态一致。"""
@@ -487,6 +506,16 @@ class CatPet:
                 self._start_walking()
                 return
 
+            # 随机卖萌说话
+            speech = (CFG or {}).get("speech", DEFAULT_SPEECH)
+            if speech.get("enabled", True) and now >= self._next_speech_time:
+                phrases = speech.get("phrases") or ["喵~"]
+                self.say(random.choice(phrases))
+                self._next_speech_time = now + random.uniform(
+                    speech.get("random_interval_min", 25),
+                    speech.get("random_interval_max", 60),
+                )
+
             # 发呆太久 -> 犯困睡觉
             if now - self.idle_since > self.sleep_after:
                 self._go_sleep()
@@ -503,6 +532,7 @@ class CatPet:
             WALK_MIN_SECONDS, WALK_MAX_SECONDS
         )
         self.set_state("walk")
+        self.say("出去逛逛~")
         print(f"[行为] 开始走路（{self.walk_until - time.monotonic():.0f} 秒）")
 
     def _go_sleep(self):
@@ -513,6 +543,7 @@ class CatPet:
             SLEEP_DURATION_MIN, SLEEP_DURATION_MAX
         )
         self.set_state("sleep")
+        self.say("晚安，喵~ zzz")
 
     def _wake_up(self):
         """睡醒：回到发呆状态，重新计时。"""
@@ -612,6 +643,7 @@ class CatPet:
         self.was_walking = self.walking
         self.walking = False
         self.set_state("pet")
+        self.say("好舒服~ 再摸摸")
 
     # ------------------------------------------------------------------
     # 右键菜单
@@ -646,6 +678,14 @@ class CatPet:
             self.menu.add_command(
                 label=menu_cfg.get("hearts_label", "发射爱心彩蛋"),
                 command=self.launch_hearts,
+            )
+            self.menu.add_separator()
+
+        # 说话按钮
+        if menu_cfg.get("show_speech", True):
+            self.menu.add_command(
+                label=menu_cfg.get("speech_label", "说句话"),
+                command=self.say_random,
             )
             self.menu.add_separator()
 
@@ -692,6 +732,134 @@ class CatPet:
             self._wake_up()
         self.walking = False
         self.set_state("blink")
+
+    # ------------------------------------------------------------------
+    # 说话气泡：猫头上弹出文字，几秒后自动消失
+    # ------------------------------------------------------------------
+    def _clear_bubble(self):
+        """清除当前说话气泡。"""
+        for item in self._speech_items:
+            try:
+                self.canvas.delete(item)
+            except Exception:
+                pass
+        self._speech_items = []
+
+    def say(self, text):
+        """
+        在猫头上方弹出"80% 透明白 + 毛玻璃感"气泡显示 text，自动消失。
+        文字太长会自动换行（最多两行）。
+        """
+        speech = (CFG or {}).get("speech", DEFAULT_SPEECH)
+        duration = int(speech.get("duration_ms", 3500))
+        self._clear_bubble()
+
+        w = self.window_w
+        font = self._load_speech_font(20)
+        char_w = 20                       # 近似中文字宽（用于折行估算）
+        width_chars = sum(2 if ord(c) > 127 else 1 for c in text)
+        max_chars = (w - 40) // char_w    # 单行最多容纳的"半角字符数"
+        lines = [text]
+        if width_chars > max_chars:
+            # 按显示宽度折半成两行
+            half = width_chars // 2
+            cur = ""
+            cur_w = 0
+            lines = []
+            for c in text:
+                cw = 2 if ord(c) > 127 else 1
+                if cur_w + cw > half and cur:
+                    lines.append(cur)
+                    cur, cur_w = c, cw
+                else:
+                    cur += c
+                    cur_w += cw
+            if cur:
+                lines.append(cur)
+            lines = lines[:2]
+
+        # 用字体实际测量宽度，保证气泡大小贴合文字
+        if font is not None:
+            line_widths = [int(font.getlength(ln)) for ln in lines]
+        else:
+            line_widths = [sum(2 if ord(c) > 127 else 1 for c in ln) * 11 for ln in lines]
+        bubble_w = min(max(max(line_widths) + 32, 92), w - 12)
+        line_h = 26
+        bubble_h = line_h * len(lines) + 16
+
+        # ---- 用 PIL 画"半透明毛玻璃"气泡图片 ----
+        tail_h = 12
+        pad = 5                       # 阴影/模糊留白
+        img_w = bubble_w + pad * 2
+        img_h = bubble_h + pad * 2 + tail_h
+        base = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(base)
+        # 半透明白圆角矩形（80% 透明度）+ 柔和描边
+        d.rounded_rectangle(
+            [pad, pad, pad + bubble_w, pad + bubble_h],
+            radius=14,
+            fill=(255, 255, 255, 204),       # 80% 白
+            outline=(120, 120, 130, 220),
+            width=2,
+        )
+        # 指向猫的尾巴
+        cx = img_w // 2
+        d.polygon(
+            [(cx - 10, pad + bubble_h), (cx + 10, pad + bubble_h), (cx, pad + bubble_h + tail_h)],
+            fill=(255, 255, 255, 204),
+        )
+        # 高斯模糊 → 毛玻璃感（文字最后画，保持清晰）
+        bubble_img = base.filter(ImageFilter.GaussianBlur(1.2))
+        d2 = ImageDraw.Draw(bubble_img)
+        text_y = pad + bubble_h // 2 - ((len(lines) - 1) * line_h) // 2
+        for i, line in enumerate(lines):
+            lw = line_widths[i]
+            d2.text(
+                (cx - lw // 2, text_y + i * line_h),
+                line,
+                font=font,
+                fill=(60, 60, 70, 255),
+            )
+
+        self._bubble_photo = ImageTk.PhotoImage(bubble_img)
+        bx = (w - img_w) // 2
+        # 气泡贴近猫头顶（放在气泡区底部，间距 -25 更紧凑）
+        by = max(2, BUBBLE_ZONE - img_h - 25)
+        self._speech_items.append(
+            self.canvas.create_image(bx, by, anchor="nw", image=self._bubble_photo)
+        )
+        self.root.after(duration, self._clear_bubble)
+        print(f"[说话] {text}")
+
+    def _load_speech_font(self, size):
+        """加载支持中文的气泡字体（各平台找常见中文字体，找不到返回 None）。"""
+        if hasattr(self, "_speech_font") and self._speech_font is not None:
+            return self._speech_font
+        import os as _os
+        candidates = [
+            "/System/Library/Fonts/PingFang.ttc",          # macOS
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",  # macOS
+            "C:/Windows/Fonts/msyh.ttc",                   # Windows 微软雅黑
+            "C:/Windows/Fonts/simhei.ttf",                 # Windows 黑体
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        ]
+        try:
+            from PIL import ImageFont
+            for path in candidates:
+                if _os.path.exists(path):
+                    self._speech_font = ImageFont.truetype(path, size)
+                    return self._speech_font
+        except Exception:
+            pass
+        self._speech_font = None
+        return None
+
+    def say_random(self):
+        """从配置的短语里随机说一句（右键菜单"说句话"）。"""
+        speech = (CFG or {}).get("speech", DEFAULT_SPEECH)
+        phrases = speech.get("phrases") or ["喵~"]
+        self.say(random.choice(phrases))
 
     # ------------------------------------------------------------------
     # 爱心彩蛋：从猫咪身上喷出飘散的爱心

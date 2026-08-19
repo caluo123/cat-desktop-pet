@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "remote": {
     "enabled": true,
     "config_url": "https://cdn.jsdelivr.net/gh/caluo123/cat-desktop-pet@main/config.json",
@@ -17,6 +17,8 @@
     "actions_submenu_label": "动作",
     "show_hearts": true,
     "hearts_label": "发射爱心彩蛋",
+    "show_speech": true,
+    "speech_label": "说句话",
     "show_pause": true,
     "show_size": true,
     "show_sleep": true,
@@ -32,5 +34,22 @@
     "sleep_after_max": 70,
     "sleep_duration_min": 15,
     "sleep_duration_max": 40
+  },
+  "speech": {
+    "enabled": true,
+    "random_interval_min": 25,
+    "random_interval_max": 60,
+    "duration_ms": 3500,
+    "phrases": [
+      "喵~",
+      "今天也要元气满满！",
+      "摸摸我嘛~",
+      "想吃小鱼干",
+      "陪我玩一会儿",
+      "困了，想睡觉zzz",
+      "主人今天好忙呀",
+      "发射爱心~ 啾",
+      "我超可爱的！"
+    ]
   }
 }
