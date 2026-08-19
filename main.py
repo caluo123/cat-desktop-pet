@@ -22,13 +22,14 @@
 
 import os
 import json
+import math
 import random
 import sys
 import time
 import tkinter as tk
 import urllib.request
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 
 # ===========================================================================
@@ -97,6 +98,8 @@ REMOTE_TIMEOUT = 8           # 远程拉取超时（秒）
 DEFAULT_MENU = {
     "show_actions": True,
     "actions_submenu_label": "动作",
+    "show_hearts": True,
+    "hearts_label": "发射爱心彩蛋",
     "show_pause": True,
     "show_size": True,
     "show_sleep": True,
@@ -220,6 +223,9 @@ class CatPet:
             SLEEP_AFTER_MIN, SLEEP_AFTER_MAX
         )
         self._photo_cache = {}        # PhotoImage 缓存，避免被回收
+        self._heart_photos = {}       # 爱心彩蛋的图片缓存
+        self._hearts = []             # 正在飘散的爱心列表
+        self._heart_anim_running = False
         self._walk_dir = 1            # 当前朝向：1 向右，-1 向左
 
         # ---- 拖拽/点击判定 ----
@@ -635,6 +641,14 @@ class CatPet:
             )
             self.menu.add_separator()
 
+        # 爱心彩蛋按钮
+        if menu_cfg.get("show_hearts", True):
+            self.menu.add_command(
+                label=menu_cfg.get("hearts_label", "发射爱心彩蛋"),
+                command=self.launch_hearts,
+            )
+            self.menu.add_separator()
+
         # 大小子菜单
         if menu_cfg.get("show_size", True):
             size_menu = tk.Menu(self.root, tearoff=0)
@@ -678,6 +692,101 @@ class CatPet:
             self._wake_up()
         self.walking = False
         self.set_state("blink")
+
+    # ------------------------------------------------------------------
+    # 爱心彩蛋：从猫咪身上喷出飘散的爱心
+    # ------------------------------------------------------------------
+    HEART_PATTERN = [
+        ".XX.",
+        "X.X.X",
+        "X.X.X",
+        ".XXX.",
+    ]
+
+    def _make_heart_photo(self, size, alpha):
+        """生成一张粉色爱心图（按大小 + 透明度缓存）。"""
+        key = (size, alpha)
+        if key not in self._heart_photos:
+            img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            s = size / 5.0
+            for row, line in enumerate(self.HEART_PATTERN):
+                for col, ch in enumerate(line):
+                    if ch == "X":
+                        x0, y0 = col * s, row * s
+                        d.rectangle(
+                            [x0, y0, x0 + s - 1, y0 + s - 1],
+                            fill=(255, 105, 180, alpha),
+                        )
+            # 左上高光，更有立体感
+            if size >= 20:
+                d.rectangle([int(s * 1.2), int(s * 1.2),
+                             int(s * 1.8), int(s * 1.8)],
+                            fill=(255, 200, 220, alpha))
+            self._heart_photos[key] = ImageTk.PhotoImage(img)
+        return self._heart_photos[key]
+
+    def launch_hearts(self):
+        """爱心彩蛋：从猫胸口向四周喷出 12 颗爱心。"""
+        cx = self.window_w // 2
+        cy = int(self.window_h * 0.30)
+        for _ in range(12):
+            size = random.choice((16, 22, 30))
+            angle = random.uniform(math.pi * 0.70, math.pi * 1.30)  # 向上扇形
+            speed = random.uniform(2.0, 4.5)
+            item = self.canvas.create_image(
+                cx, cy, image=self._make_heart_photo(size, 255)
+            )
+            life = random.randint(35, 60)
+            self._hearts.append({
+                "item": item,
+                "x": float(cx),
+                "y": float(cy),
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "life": life,
+                "max_life": life,
+                "size": size,
+            })
+        if not self._heart_anim_running:
+            self._heart_anim_running = True
+            self.root.after(30, self._animate_hearts)
+        print("[彩蛋] 发射爱心！")
+
+    def _animate_hearts(self):
+        """爱心动画：飘散 + 重力 + 渐隐，播完自动清理。"""
+        alive = []
+        for h in self._hearts:
+            h["life"] -= 1
+            if h["life"] <= 0:
+                self.canvas.delete(h["item"])
+                continue
+            h["vy"] += 0.12          # 重力
+            h["vx"] *= 0.99          # 空气阻力
+            h["x"] += h["vx"]
+            h["y"] += h["vy"]
+            self.canvas.coords(h["item"], h["x"], h["y"])
+
+            # 按剩余生命渐隐
+            frac = h["life"] / h["max_life"]
+            alpha = 255
+            if frac < 0.25:
+                alpha = 20
+            elif frac < 0.5:
+                alpha = 70
+            elif frac < 0.7:
+                alpha = 130
+            elif frac < 0.85:
+                alpha = 190
+            self.canvas.itemconfig(
+                h["item"], image=self._make_heart_photo(h["size"], alpha)
+            )
+            alive.append(h)
+        self._hearts = alive
+        if self._hearts:
+            self.root.after(30, self._animate_hearts)
+        else:
+            self._heart_anim_running = False
 
     def _toggle_pause(self):
         """切换"暂停走动"。"""
