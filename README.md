@@ -65,6 +65,19 @@ python scripts/generate_frames.py \
 
 4. 想调动画快慢/走路速度，改 `main.py` 顶部的 `ANIM_CONFIG` 和 `WALK_SPEED`。
 
+## 三·五、配置文件 config.json（推荐）
+
+从 v3 起，右键菜单、动作状态、行为参数都可以通过项目根目录的
+`config.json` 配置，无需改代码：
+
+- `states`：每个动作的帧数、帧间隔、是否循环、菜单显示名（可增删动作）；
+- `menu`：右键菜单开关（动作子菜单/大小/暂停/睡觉/退出）；
+- `behavior`：走路速度、随机走路/眨眼概率、睡觉时长等；
+- `remote`：开启后 exe 启动时会从 GitHub(jsDelivr CDN) 拉取最新配置和动画帧，
+  改仓库里的文件（并递增 `version`）即可远程更新 exe 的动作，不用重新打包。
+
+> 注意：远程更新要求仓库为**公开**仓库，否则 CDN 会 404。
+
 ## 四、打包成 Windows exe
 
 PyInstaller 不支持跨平台打包，**在 Mac 上无法直接生成 Windows exe**。

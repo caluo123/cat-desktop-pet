@@ -31,6 +31,7 @@ jobs:
           python -m PyInstaller --noconfirm --onefile --windowed `
             --name CatPet `
             --add-data "assets;assets" `
+            --add-data "config.json;." `
             main.py
 
       - name: 上传 exe 产物

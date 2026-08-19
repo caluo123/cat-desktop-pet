@@ -21,10 +21,12 @@
 """
 
 import os
+import json
 import random
 import sys
 import time
 import tkinter as tk
+import urllib.request
 
 from PIL import Image, ImageTk
 
@@ -60,15 +62,15 @@ SIZE_PRESETS = [("小 192", 192), ("中 256", 256), ("大 320", 320)]
 #   interval_ms: 每帧切换间隔（毫秒），越大动作越慢
 #   loop       : True 循环播放；False 播放一遍后自动回到基础状态
 ANIM_CONFIG = {
-    "idle":   {"frames": 8, "interval_ms": 150, "loop": True},   # 发呆（视频连续 8 帧）
-    "blink":  {"frames": 4, "interval_ms": 120, "loop": False},  # 眨眼
-    "walk":   {"frames": 8, "interval_ms": 100, "loop": True},  # 走路（一个猫步 8 帧，腿速稍放慢）
-    "pet":    {"frames": 8, "interval_ms": 100, "loop": False},  # 被抚摸（视频连续 8 帧）
-    "sleep":  {"frames": 10, "interval_ms": 220, "loop": True},  # 睡觉（视频连续 10 帧）
+    "idle":   {"frames": 8, "interval_ms": 300, "loop": True},   # 发呆（放慢 50%）
+    "blink":  {"frames": 4, "interval_ms": 240, "loop": False},  # 眨眼（放慢 50%）
+    "walk":   {"frames": 8, "interval_ms": 480, "loop": True},   # 走路（放慢 50%）
+    "pet":    {"frames": 8, "interval_ms": 200, "loop": False},  # 被抚摸（放慢 50%）
+    "sleep":  {"frames": 10, "interval_ms": 440, "loop": True},  # 睡觉（放慢 50%）
 }
 
 # 行为参数（都可以按喜好调整）
-WALK_SPEED = 3                # 走路速度：每次移动(50ms)前进的像素数（4→3 变慢 25%）
+WALK_SPEED = 2                # 走路速度：每次移动(50ms)前进的像素数（慢速踱步）
 WALK_MIN_SECONDS = 6          # 一次自动游走的最短时间（秒）
 WALK_MAX_SECONDS = 15         # 一次自动游走的最长时间（秒）
 BLINK_CHANCE = 0.004          # 发呆时每 tick 触发眨眼的概率
@@ -77,6 +79,105 @@ SLEEP_AFTER_MIN = 45          # 连续发呆多久（秒）后开始考虑睡觉
 SLEEP_AFTER_MAX = 70
 SLEEP_DURATION_MIN = 15       # 睡多久后自己醒（秒）
 SLEEP_DURATION_MAX = 40
+
+# ===========================================================================
+# 二、配置系统：右键菜单 / 动作 / 行为都可以用 config.json 配置，
+#     并支持启动时从 GitHub(jsDelivr) 拉取最新配置与动画帧，
+#     这样改仓库里的文件就能更新 exe 的动作，无需重新打包。
+# ===========================================================================
+
+# 本地配置文件（打包时随 exe 一起带上）
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+# 远程素材缓存目录（下载过的帧缓存在用户目录，避免每次启动都下载）
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".catpet", "cache")
+REMOTE_TIMEOUT = 8           # 远程拉取超时（秒）
+
+# 默认菜单/行为（本地 config.json 缺失时的兜底）
+DEFAULT_MENU = {
+    "show_actions": True,
+    "actions_submenu_label": "动作",
+    "show_pause": True,
+    "show_size": True,
+    "show_sleep": True,
+    "show_exit": True,
+}
+DEFAULT_BEHAVIOR = {
+    "walk_speed": 2,
+    "walk_min_seconds": 6,
+    "walk_max_seconds": 15,
+    "blink_chance": 0.004,
+    "walk_chance": 0.02,
+    "sleep_after_min": 45,
+    "sleep_after_max": 70,
+    "sleep_duration_min": 15,
+    "sleep_duration_max": 40,
+}
+DEFAULT_REMOTE = {"enabled": False, "config_url": "", "assets_base": ""}
+
+CFG = None  # 模块级配置（main() 启动时加载并应用）
+
+
+def _merge(base, extra):
+    """浅合并：extra 覆盖 base，字典按 key 递归合并。"""
+    out = dict(base)
+    for k, v in (extra or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            out[k] = _merge(base[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def load_config():
+    """加载配置：本地 config.json → 远程配置（若启用）→ 合并返回。"""
+    cfg = {
+        "version": 1,
+        "states": dict(ANIM_CONFIG),
+        "menu": dict(DEFAULT_MENU),
+        "behavior": dict(DEFAULT_BEHAVIOR),
+        "remote": dict(DEFAULT_REMOTE),
+    }
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as fp:
+                cfg = _merge(cfg, json.load(fp))
+            print("[配置] 已加载本地 config.json")
+        except Exception as exc:
+            print("[配置] 本地 config.json 读取失败，使用内置默认值:", exc)
+
+    remote = cfg.get("remote") or {}
+    if remote.get("enabled") and remote.get("config_url"):
+        url = f"{remote['config_url']}?v={cfg.get('version', 1)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "CatPet"})
+            with urllib.request.urlopen(req, timeout=REMOTE_TIMEOUT) as resp:
+                remote_cfg = json.loads(resp.read().decode("utf-8"))
+            cfg = _merge(cfg, remote_cfg)
+            print("[配置] 已从远程加载最新配置")
+        except Exception as exc:
+            print("[配置] 远程配置拉取失败，使用本地配置:", exc)
+    return cfg
+
+
+def apply_config(cfg):
+    """把配置应用到模块级变量（动画配置/行为参数/菜单）。"""
+    global CFG, ANIM_CONFIG
+    global WALK_SPEED, WALK_MIN_SECONDS, WALK_MAX_SECONDS
+    global BLINK_CHANCE, WALK_CHANCE
+    global SLEEP_AFTER_MIN, SLEEP_AFTER_MAX, SLEEP_DURATION_MIN, SLEEP_DURATION_MAX
+    CFG = cfg
+    ANIM_CONFIG = cfg["states"]
+    b = cfg["behavior"]
+    WALK_SPEED = int(b.get("walk_speed", WALK_SPEED))
+    WALK_MIN_SECONDS = float(b.get("walk_min_seconds", WALK_MIN_SECONDS))
+    WALK_MAX_SECONDS = float(b.get("walk_max_seconds", WALK_MAX_SECONDS))
+    BLINK_CHANCE = float(b.get("blink_chance", BLINK_CHANCE))
+    WALK_CHANCE = float(b.get("walk_chance", WALK_CHANCE))
+    SLEEP_AFTER_MIN = float(b.get("sleep_after_min", SLEEP_AFTER_MIN))
+    SLEEP_AFTER_MAX = float(b.get("sleep_after_max", SLEEP_AFTER_MAX))
+    SLEEP_DURATION_MIN = float(b.get("sleep_duration_min", SLEEP_DURATION_MIN))
+    SLEEP_DURATION_MAX = float(b.get("sleep_duration_max", SLEEP_DURATION_MAX))
 
 # 透明色：窗口背景用这个颜色，Windows 下该颜色会变成完全透明
 MAGENTA = "#ff00ff"
@@ -170,13 +271,14 @@ class CatPet:
         按 ANIM_CONFIG 加载所有状态的动画帧。
 
         命名规范：assets/cat/{状态}_{序号}.png，例如 idle_1.png、walk_2.png。
+        帧来源优先级：本地缓存 → 远程仓库（config 启用时）→ 打包内素材。
         某个状态的帧缺失时自动回退到 idle 帧并给出提示，程序不会崩溃。
         """
         self.pil_frames = {}   # state -> [PIL.Image, ...]
         for state, cfg in ANIM_CONFIG.items():
             frames = []
             for i in range(1, cfg["frames"] + 1):
-                path = os.path.join(ASSET_DIR, f"{state}_{i}.png")
+                path = self._get_frame_path(state, i)
                 if os.path.exists(path):
                     img = Image.open(path).convert("RGBA")
                     frames.append(self._prepare_frame(img, PET_SIZE))
@@ -189,6 +291,32 @@ class CatPet:
         self.pet_size = PET_SIZE
         self.window_w = PET_SIZE
         self.window_h = PET_SIZE
+
+    def _get_frame_path(self, state, idx):
+        """
+        找某一帧图片的路径：先看本地缓存，再尝试从远程下载，最后用打包内素材。
+        远程地址来自 config.json 的 remote.assets_base（jsDelivr CDN）。
+        """
+        name = f"{state}_{idx}.png"
+        cache = os.path.join(CACHE_DIR, name)
+        if os.path.exists(cache):
+            return cache
+
+        remote = (CFG or {}).get("remote") or {}
+        if remote.get("enabled") and remote.get("assets_base"):
+            url = f"{remote['assets_base']}/{name}?v={(CFG or {}).get('version', 1)}"
+            try:
+                os.makedirs(CACHE_DIR, exist_ok=True)
+                req = urllib.request.Request(url, headers={"User-Agent": "CatPet"})
+                with urllib.request.urlopen(req, timeout=REMOTE_TIMEOUT) as resp:
+                    data = resp.read()
+                with open(cache, "wb") as fp:
+                    fp.write(data)
+                print(f"[素材] 已从远程下载 {name}")
+                return cache
+            except Exception:
+                pass  # 远程失败则用本地素材
+        return os.path.join(ASSET_DIR, name)
 
     def _prepare_frame(self, img, size):
         """缩放 + 可选"硬化"半透明边缘（去掉紫色描边）。"""
@@ -483,37 +611,55 @@ class CatPet:
     # 右键菜单
     # ------------------------------------------------------------------
     def _on_right_click(self, event):
-        """弹出右键菜单（文案随当前状态变化）。"""
+        """弹出右键菜单：结构由 config.json 的 menu 段配置。"""
         self.menu.delete(0, "end")
-        # ---- 动作子菜单：手动触发任意一套动画 ----
-        anim_menu = tk.Menu(self.root, tearoff=0)
-        anim_menu.add_command(label="发呆", command=self._play_idle)
-        anim_menu.add_command(label="眨眼", command=self._play_blink)
-        anim_menu.add_command(label="被抚摸", command=self._play_pet)
-        anim_menu.add_command(label="立即走动", command=self._start_walking)
-        anim_menu.add_command(label="睡觉", command=self._go_sleep)
-        self.menu.add_cascade(label="动作", menu=anim_menu)
-        self.menu.add_separator()
-        # ---- 大小子菜单 ----
-        size_menu = tk.Menu(self.root, tearoff=0)
-        for label, s in SIZE_PRESETS:
-            size_menu.add_command(
-                label=label,
-                command=lambda s=s: self.set_size(s),
+        menu_cfg = (CFG or {}).get("menu", DEFAULT_MENU)
+        state_cfg = (CFG or {}).get("states", ANIM_CONFIG)
+
+        # 动作子菜单：菜单项来自 states 配置（label 可改、状态可增删）
+        if menu_cfg.get("show_actions", True):
+            anim_menu = tk.Menu(self.root, tearoff=0)
+            for state in state_cfg:
+                label = state_cfg[state].get("label", state)
+                command = {
+                    "idle": self._play_idle,
+                    "blink": self._play_blink,
+                    "walk": self._start_walking,
+                    "pet": self._play_pet,
+                    "sleep": self._go_sleep,
+                }.get(state, self._play_idle)
+                anim_menu.add_command(label=label, command=command)
+            self.menu.add_cascade(
+                label=menu_cfg.get("actions_submenu_label", "动作"),
+                menu=anim_menu,
             )
-        self.menu.add_cascade(label=f"大小 ({self.pet_size})", menu=size_menu)
-        self.menu.add_separator()
-        # ---- 行为开关 ----
-        self.menu.add_command(
-            label="继续走动" if self.paused else "暂停走动",
-            command=self._toggle_pause,
-        )
-        self.menu.add_command(
-            label="唤醒猫咪" if self.asleep else "睡觉",
-            command=self._toggle_sleep,
-        )
-        self.menu.add_separator()
-        self.menu.add_command(label="退出", command=self.root.destroy)
+            self.menu.add_separator()
+
+        # 大小子菜单
+        if menu_cfg.get("show_size", True):
+            size_menu = tk.Menu(self.root, tearoff=0)
+            for label, s in SIZE_PRESETS:
+                size_menu.add_command(
+                    label=label,
+                    command=lambda s=s: self.set_size(s),
+                )
+            self.menu.add_cascade(label=f"大小 ({self.pet_size})", menu=size_menu)
+            self.menu.add_separator()
+
+        # 行为开关
+        if menu_cfg.get("show_pause", True):
+            self.menu.add_command(
+                label="继续走动" if self.paused else "暂停走动",
+                command=self._toggle_pause,
+            )
+        if menu_cfg.get("show_sleep", True):
+            self.menu.add_command(
+                label="唤醒猫咪" if self.asleep else "睡觉",
+                command=self._toggle_sleep,
+            )
+        if menu_cfg.get("show_exit", True):
+            self.menu.add_separator()
+            self.menu.add_command(label="退出", command=self.root.destroy)
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def _play_idle(self):
@@ -615,6 +761,7 @@ def main():
         print("[提示] 已经有一只猫咪在运行了，本窗口直接退出。")
         return
     try:
+        apply_config(load_config())
         root = tk.Tk()
         root.title("桌面猫咪")
         # 调试辅助：

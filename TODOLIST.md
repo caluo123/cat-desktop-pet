@@ -41,6 +41,22 @@
 - [x] 更新 main.py 配置 + 预览图 + 验收报告（previews/qwen_report.md）
 - [ ] 醒来后实机确认三套动作效果，不满意可换帧重生成
 
+## 里程碑 4.7：Q 版卡通素材 ✅（已完成，待实机验收）
+- [x] 安装 qwen-image-edit 技能并配置 DashScope API Key
+- [x] 以用户提供的 pet_1/sleep_4 为形象参考，生成正面发呆 + 侧面走路
+- [x] 修复走路图缺失眼睛问题（qwen_walk_v2）
+- [x] rembg 抠图 + 生成五态动画（idle8/blink4/walk8/pet8/sleep10）替换 assets/cat
+- [x] 逻辑测试通过，预览图/GIF 已生成（previews/q_*.png, q_*.gif）
+- [ ] 实机确认 Q 版动画效果
+- [ ] 重新打包 Windows exe（需要有效 GitHub token 或网页手动触发 Actions）
+
+## 里程碑 6：配置化 + 远程更新 ✅（代码完成，待推送/打包）
+- [x] `config.json`：states（动作）/ menu（右键菜单）/ behavior（行为）/ remote（远程源）
+- [x] main.py：菜单按配置生成，动作帧数/速度按配置加载
+- [x] 素材远程拉取 + 本地缓存 + 离线回退
+- [x] 配置系统逻辑测试通过（含远程失败回退）
+- [ ] 仓库改为公开 + 推送 config.json/素材 + 重新打包 exe
+
 ## 里程碑 5：打包 Windows exe ⏳（需要一台 Windows 电脑）
 - [x] 方案 A：GitHub Actions 云端打包（仓库 caluo123/cat-desktop-pet）
 - [x] `dist/CatPet.exe`（19.5MB）已生成并下载到本地

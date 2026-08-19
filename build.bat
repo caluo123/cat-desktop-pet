@@ -14,6 +14,7 @@ echo [2/3] 开始打包...
 python -m PyInstaller --noconfirm --onefile --windowed ^
   --name CatPet ^
   --add-data "assets;assets" ^
+  --add-data "config.json;." ^
   main.py
 if errorlevel 1 goto :fail
 

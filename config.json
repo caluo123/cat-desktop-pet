@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "remote": {
+    "enabled": true,
+    "config_url": "https://cdn.jsdelivr.net/gh/caluo123/cat-desktop-pet@main/config.json",
+    "assets_base": "https://cdn.jsdelivr.net/gh/caluo123/cat-desktop-pet@main/assets/cat"
+  },
+  "states": {
+    "idle":  {"frames": 8,  "interval_ms": 300, "loop": true,  "label": "发呆"},
+    "blink": {"frames": 4,  "interval_ms": 240, "loop": false, "label": "眨眼"},
+    "walk":  {"frames": 8,  "interval_ms": 480, "loop": true,  "label": "立即走动"},
+    "pet":   {"frames": 8,  "interval_ms": 200, "loop": false, "label": "被抚摸"},
+    "sleep": {"frames": 10, "interval_ms": 440, "loop": true,  "label": "睡觉"}
+  },
+  "menu": {
+    "show_actions": true,
+    "actions_submenu_label": "动作",
+    "show_pause": true,
+    "show_size": true,
+    "show_sleep": true,
+    "show_exit": true
+  },
+  "behavior": {
+    "walk_speed": 2,
+    "walk_min_seconds": 6,
+    "walk_max_seconds": 15,
+    "blink_chance": 0.004,
+    "walk_chance": 0.02,
+    "sleep_after_min": 45,
+    "sleep_after_max": 70,
+    "sleep_duration_min": 15,
+    "sleep_duration_max": 40
+  }
+}
