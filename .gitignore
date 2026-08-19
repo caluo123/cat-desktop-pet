@@ -1,0 +1,18 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.pyc
+.venv/
+.venv314/
+
+# 本地大文件（不需要进 git / 不需要进 exe）
+.u2net/
+input_photos/
+previews/
+
+# 打包产物
+dist/
+build/
+*.spec
+
+# macOS
+.DS_Store

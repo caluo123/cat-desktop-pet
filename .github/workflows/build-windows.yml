@@ -1,0 +1,40 @@
+name: 构建 Windows exe
+
+# 使用方式：
+#   1. 在 GitHub 新建一个仓库（Public 或 Private 都行）
+#   2. 把整个项目推送上去（git add . && git commit && git push）
+#   3. 打开仓库 Actions 页面，手动运行本工作流
+#   4. 跑完后在 Actions 的 Artifacts 里下载 CatPet-windows.zip，
+#      解压得到 CatPet.exe（Windows 上直接双击运行）
+on:
+  workflow_dispatch:  # 手动触发，不依赖每次 push
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pillow pyinstaller
+
+      - name: PyInstaller 打包
+        run: |
+          python -m PyInstaller --noconfirm --onefile --windowed `
+            --name CatPet `
+            --add-data "assets;assets" `
+            main.py
+
+      - name: 上传 exe 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: CatPet-windows
+          path: dist/CatPet.exe
