@@ -42,9 +42,18 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSET_DIR = os.path.join(BASE_DIR, "assets", "cat")
 
-# 素材放大倍数：照片素材已按 256x256 生成，无需放大；
-# 若换成小尺寸素材（如 64x64 像素画），可调回 2 让它更清楚
-FRAME_SCALE = 1
+# 猫咪显示尺寸（像素，正方形）：程序会把所有素材缩放到这个大小
+# 也可运行时用命令行参数指定：python main.py --size 320
+PET_SIZE = 256
+
+# 消除"紫色描边"：
+# Windows 透明色窗口会把品红(MAGENTA)变成透明，图片半透明边缘和品红混合后
+# 会形成一圈紫色。开启后，加载时把半透明像素硬化为"完全透明/完全不透明"。
+ALPHA_HARDEN = True
+ALPHA_THRESHOLD = 180   # alpha 低于该值视为完全透明，否则完全不透明
+
+# 右键菜单"大小"可选档位
+SIZE_PRESETS = [("小 192", 192), ("中 256", 256), ("大 320", 320)]
 
 # 动画状态配置：帧数必须和 assets/cat/ 下实际 PNG 数量一致
 #   frames     : 该状态共几帧（代码会加载 state_1.png ~ state_N.png）
@@ -170,26 +179,48 @@ class CatPet:
                 path = os.path.join(ASSET_DIR, f"{state}_{i}.png")
                 if os.path.exists(path):
                     img = Image.open(path).convert("RGBA")
-                    if FRAME_SCALE != 1:
-                        # 像素画用 NEAREST 放大，保持清晰边缘
-                        try:
-                            resample = Image.Resampling.NEAREST
-                        except AttributeError:  # 兼容旧版 Pillow
-                            resample = Image.NEAREST
-                        img = img.resize(
-                            (img.width * FRAME_SCALE, img.height * FRAME_SCALE),
-                            resample,
-                        )
-                    frames.append(img)
+                    frames.append(self._prepare_frame(img, PET_SIZE))
             if not frames:
                 print(f"[提示] 缺少 {state} 动画帧，将用 idle 帧代替。")
                 frames = self.pil_frames.get("idle", [])
             self.pil_frames[state] = frames
 
-        # 以 idle 第一帧的尺寸作为窗口/画布尺寸
-        first = self.pil_frames["idle"][0]
-        self.window_w = first.width
-        self.window_h = first.height
+        # 窗口/画布尺寸 = 设定的猫咪尺寸
+        self.pet_size = PET_SIZE
+        self.window_w = PET_SIZE
+        self.window_h = PET_SIZE
+
+    def _prepare_frame(self, img, size):
+        """缩放 + 可选"硬化"半透明边缘（去掉紫色描边）。"""
+        img = img.resize((size, size), Image.Resampling.LANCZOS)
+        if ALPHA_HARDEN:
+            alpha = img.getchannel("A").point(
+                lambda a: 255 if a >= ALPHA_THRESHOLD else 0
+            )
+            img.putalpha(alpha)
+        return img
+
+    def set_size(self, size):
+        """运行时调整猫咪大小（保持窗口中心不动）。"""
+        size = max(100, min(600, int(size)))
+        if size == self.pet_size:
+            return
+        old_w, old_h = self.window_w, self.window_h
+        cx = self.root.winfo_x() + old_w // 2
+        cy = self.root.winfo_y() + old_h // 2
+
+        self.pet_size = size
+        self.window_w = size
+        self.window_h = size
+        self.pil_frames = {
+            state: [self._prepare_frame(img, size) for img in imgs]
+            for state, imgs in self.pil_frames.items()
+        }
+        self._photo_cache.clear()
+        self.canvas.config(width=size, height=size)
+        self.root.geometry(f"+{cx - size // 2}+{cy - size // 2}")
+        self._show_frame()
+        print(f"[大小] 猫咪调整为 {size}x{size}")
 
     def _setup_canvas(self):
         """创建画布并显示第一帧。"""
@@ -463,6 +494,15 @@ class CatPet:
         anim_menu.add_command(label="睡觉", command=self._go_sleep)
         self.menu.add_cascade(label="动作", menu=anim_menu)
         self.menu.add_separator()
+        # ---- 大小子菜单 ----
+        size_menu = tk.Menu(self.root, tearoff=0)
+        for label, s in SIZE_PRESETS:
+            size_menu.add_command(
+                label=label,
+                command=lambda s=s: self.set_size(s),
+            )
+        self.menu.add_cascade(label=f"大小 ({self.pet_size})", menu=size_menu)
+        self.menu.add_separator()
         # ---- 行为开关 ----
         self.menu.add_command(
             label="继续走动" if self.paused else "暂停走动",
@@ -527,7 +567,53 @@ class CatPet:
 # ===========================================================================
 # 三、入口
 # ===========================================================================
+_SINGLE_LOCK = {}
+
+
+def _ensure_single_instance():
+    """
+    防止同时运行两只猫咪。
+    Windows：命名互斥锁；其他平台：占用本地端口当锁。
+    返回 False 表示已经有一只猫在运行。
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        _SINGLE_LOCK["mutex"] = kernel32.CreateMutexW(
+            None, False, "CatPet_SingleInstance"
+        )
+        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        return True
+
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 48765))
+        s.listen(1)
+        _SINGLE_LOCK["socket"] = s  # 保持引用，防止被垃圾回收
+        return True
+    except OSError:
+        return False
+
+
+def _parse_size():
+    """解析命令行 --size 参数，例如：python main.py --size 320"""
+    if "--size" in sys.argv:
+        try:
+            idx = sys.argv.index("--size")
+            return max(100, min(600, int(sys.argv[idx + 1])))
+        except (ValueError, IndexError):
+            print("[提示] --size 需要数字，例如 --size 320，使用默认值。")
+    return PET_SIZE
+
+
 def main():
+    if not _ensure_single_instance():
+        print("[提示] 已经有一只猫咪在运行了，本窗口直接退出。")
+        return
     try:
         root = tk.Tk()
         root.title("桌面猫咪")
@@ -536,6 +622,8 @@ def main():
         #   python main.py --normal  用带标题栏的普通窗口（macOS 排查用）
         borderless = "--normal" not in sys.argv
         pet = CatPet(root, borderless=borderless)
+        if _parse_size() != PET_SIZE:
+            pet.set_size(_parse_size())
         if "--center" in sys.argv:
             cx = (root.winfo_screenwidth() - pet.window_w) // 2
             cy = (root.winfo_screenheight() - pet.window_h) // 2
